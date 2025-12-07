@@ -16,7 +16,7 @@ const TOOLS = {
 };
 
 const StreamRenderer = () => {
-    const { blocks, isConnected } = useStreamIngestion('ws://localhost:3000');
+    const { blocks, isConnected } = useStreamIngestion('ws://localhost:61111');
     const { getTool } = useToolRegistry();
     const bottomRef = useRef<HTMLDivElement>(null);
 
