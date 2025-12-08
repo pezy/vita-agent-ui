@@ -14,68 +14,105 @@ async def stream_data():
     client_name = f"Agent {client_id}"
 
     steps = [
-        {
-            "type": "user_request",
-            "content": "Can you analyze this image for me and then take an action?",
-        },
-        {"type": "token", "content": "Hello from Python! "},
+        # TTS Start
+        {"type": "ui_event", "event": {"event_type": "tts_start", "text": "Hello! I will check that for you.", "provider": "bridge"}},
+        {"type": "token", "content": "Hello! "},
         {"type": "token", "content": "I "},
-        {"type": "token", "content": "am "},
-        {"type": "token", "content": "streaming "},
-        {"type": "token", "content": "data "},
-        {"type": "token", "content": "now.\n"},
+        {"type": "token", "content": "will "},
+        {"type": "token", "content": "check "},
+        {"type": "token", "content": "that "},
+        {"type": "token", "content": "for "},
+        {"type": "token", "content": "you.\n"},
+        # TTS End
+        {"type": "ui_event", "event": {"event_type": "tts_end", "status": "success", "duration_ms": 1000}},
+        
+        {"type": "user_request", "content": "Can you analyze this image for me?"},
+        
         {"type": "token", "content": "<thinking>"},
-        {"type": "token", "content": "Connecting "},
-        {"type": "token", "content": "to "},
+        {"type": "token", "content": "Checking "},
         {"type": "token", "content": "vision "},
-        {"type": "token", "content": "and "},
-        {"type": "token", "content": "action "},
         {"type": "token", "content": "tools... "},
         {"type": "token", "content": "</thinking>"},
-        # VisionAnalyze - VQA mode (mode = 1) - STREAMING EXAMPLE
+        
+        # VisionAnalyze - VQA mode
         {
-            "type": "tool_call_chunk",
+            "type": "tool_call",
             "name": "vision_analyze",
             "id": "call_py_vqa_1",
-            "args": "",  # Start with empty args, or just name/id
+            "args": {
+                "mode": 1,
+                # No image provided (simulate live capture)
+                "question": "What is the weather like?"
+            }
         },
-        # Send args in chunks
-        {"type": "tool_call_chunk", "id": "call_py_vqa_1", "args": "{\n"},
-        {"type": "tool_call_chunk", "id": "call_py_vqa_1", "args": '  "mode": 1,\n'},
-        {
-            "type": "tool_call_chunk",
-            "id": "call_py_vqa_1",
-            "args": '  "image": "https://images.unsplash.com/photo-1542281286-9e0a56e2e1a1?q=80&w=2000&auto=format&fit=crop",\n',
-        },
-        {
-            "type": "tool_call_chunk",
-            "id": "call_py_vqa_1",
-            "args": '  "question": "What kind of landscape is this?"\n',
-        },
-        {"type": "tool_call_chunk", "id": "call_py_vqa_1", "args": "}"},
+        # VQA Events
+        {"type": "ui_event", "event": {"event_type": "vision_vqa_start", "query": "What is the weather like?", "camera_position": {"pitch":0, "yaw":0}}},
+        {"type": "ui_event", "event": {
+            "event_type": "vision_image_captured", 
+            "image_base64": "iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mP8z8BQDwAEhQGAhKmMIQAAAABJRU5ErkJggg==", 
+            "image_format": "png",
+            "width": 1, "height": 1
+        }},
+        {"type": "ui_event", "event": {
+            "event_type": "vision_vqa_result", 
+            "query": "What is the weather like?", 
+            "answer": "It looks like a clear, sunny day with calm water.", 
+            "total_time_ms": 500
+        }},
         {
             "type": "tool_result",
             "id": "call_py_vqa_1",
             "result": {
                 "status": "ok",
                 "data": {
-                    "answer": "A mountainous landscape with dense forests and a lake."
+                    "answer": "It looks like a clear, sunny day with calm water."
                 },
-                "message": "Vision VQA analysis completed from Python client.",
-            },
+                "message": "Vision VQA analysis completed from Python client."
+            }
         },
-        # VisionAnalyze - Grounding mode (mode = "grounding")
+
+        # VisionAnalyze - Grounding mode
         {
-            "type": "tool_call",  # Keeping one legacy style to test backward compatibility if we wanted, but let's stick to chunks as requested?
-            # Actually, let's stream this one too to be consistent.
+            "type": "tool_call",
             "name": "vision_analyze",
             "id": "call_py_ground_1",
             "args": {
-                "mode": "grounding",
-                "image": "https://images.unsplash.com/photo-1542281286-9e0a56e2e1a1?q=80&w=2000&auto=format&fit=crop",
-                "question": "Where is the mountain peak?",
-            },
+                "mode": 2,
+                # No image (simulate live capture)
+                "question": "Where is the bridge?"
+            }
         },
+        # Grounding Events
+        {"type": "ui_event", "event": {"event_type": "vision_grounding_start", "query": "Where is the bridge?", "camera_position": {"pitch":0, "yaw":0}}},
+        {"type": "ui_event", "event": {
+            "event_type": "vision_stereo_captured", 
+            "image_base64": "iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mP8z8BQDwAEhQGAhKmMIQAAAABJRU5ErkJggg==", 
+            "image_format": "png",
+            "width": 1, "height": 1
+        }},
+        # Parallel detection and depth
+        {"type": "ui_event", "event": {"event_type": "vision_2d_detection_start", "method": "vlm"}},
+        {"type": "ui_event", "event": {"event_type": "vision_3d_start"}},
+        {"type": "ui_event", "event": {"event_type": "vision_3d_depth_complete", "duration_ms": 200}},
+        {"type": "ui_event", "event": {
+            "event_type": "vision_2d_detection_result", 
+            "detections": [{"label": "bridge", "x1": 0.1, "y1": 0.2, "x2": 0.5, "y2": 0.6}], 
+            "detection_count": 1, 
+            "duration_ms": 300
+        }},
+        {"type": "ui_event", "event": {
+            "event_type": "vision_3d_result", 
+            "objects": [{
+                "label": "bridge", 
+                "x": 25.0, "y": 0.0, "z": 0.0, 
+                "distance": 25.0, "angle_deg": 0.0, 
+                "depth_meters": 25.0, "pixel_x": 900, "pixel_y": 450, 
+                "confidence": 0.98
+            }], 
+            "detection_count": 1, 
+            "total_time_ms": 600
+        }},
+
         {
             "type": "tool_result",
             "id": "call_py_ground_1",
@@ -83,87 +120,66 @@ async def stream_data():
                 "status": "ok",
                 "data": {
                     "objects": [
-                        {
-                            "label": "mountain peak",
-                            "pixel_x": 1400,
-                            "pixel_y": 250,
-                            "distance": 120.0,
-                            "angle_deg": 0.0,
-                            "confidence": 0.96,
-                        }
-                    ],
-                    "detection_count": 1,
+                        { "label": "bridge", "distance": 25.0, "angle_deg": 0.0 }
+                    ]
                 },
-                "message": "Grounded the mountain peak position from Python client.",
-            },
+                "message": "Located the bridge in the scene."
+            }
         },
-        # TakeAction tool example - Streaming
+        
+        # TakeAction
         {
-            "type": "tool_call_chunk",
+            "type": "tool_call",
             "name": "take_action",
             "id": "call_py_action_1",
-            "args": '{"action_name": ',
+            "args": {"action_name": "Wave"}
         },
-        {"type": "tool_call_chunk", "id": "call_py_action_1", "args": '"Wave"}'},
         {
             "type": "tool_result",
             "id": "call_py_action_1",
             "result": {
                 "status": "ok",
-                "data": {
-                    "action_name": "Wave",
-                },
-                "message": "Successfully executed action 'Wave' from Python client.",
-            },
+                "data": {"action_name": "Wave"},
+                "message": "Successfully executed action 'Wave'."
+            }
         },
-        # ControlNav Tool - Navigation - Streaming
+
+        # ControlNav Tool - Navigation
         {
-            "type": "tool_call_chunk",
+            "type": "tool_call",
             "name": "control_nav",
             "id": "call_py_nav_1",
-            "args": "{",
+            "args": {"x": 2.5, "y": 1.0}
         },
-        {"type": "tool_call_chunk", "id": "call_py_nav_1", "args": '"x": 2.5, '},
-        {"type": "tool_call_chunk", "id": "call_py_nav_1", "args": '"y": 1.0}'},
-        # Simulate loading by sending tokens between request and result
         {"type": "token", "content": "Navigating "},
         {"type": "token", "content": "to "},
-        {"type": "token", "content": "target "},
-        {"type": "token", "content": "location...\n"},
+        {"type": "token", "content": "target... "},
         {
             "type": "tool_result",
             "id": "call_py_nav_1",
-            "result": "✅ Navigating to (x=2.5m forward, y=1.0m left)",
+            "result": "✅ Navigating to (x=2.5m forward, y=1.0m left)"
         },
+
         # ControlNav Tool - Rotation
         {
             "type": "tool_call",
             "name": "control_nav",
             "id": "call_py_rot_1",
-            "args": {
-                "angle": -45,
-            },
+            "args": {"angle": -45}
         },
-        {"type": "token", "content": "Rotating "},
-        {"type": "token", "content": "robot...\n"},
         {
             "type": "tool_result",
             "id": "call_py_rot_1",
-            "result": "✅ Rotated 45° Right",
+            "result": "✅ Rotated 45° Right"
         },
-        # Generic/custom tool example still works and falls back to GenericTool
-        {"type": "token", "content": "\nNow trying a generic tool...\n"},
-        {
-            "type": "tool_call",
-            "name": "custom_search",
-            "id": "call_py_2",
-            "args": {"query": "Latest AI agents", "filters": ["news", "code"]},
-        },
-        {
-            "type": "tool_result",
-            "id": "call_py_2",
-            "result": {"hits": 5, "top_hit": "LangChain Agent"},
-        },
+
+        # TTS End (just in case)
+        {"type": "ui_event", "event": {"event_type": "tts_start", "text": "The weather is sunny.", "provider": "bridge"}},
+        {"type": "token", "content": "The "},
+        {"type": "token", "content": "weather "},
+        {"type": "token", "content": "is "},
+        {"type": "token", "content": "sunny." },
+        {"type": "ui_event", "event": {"event_type": "tts_end", "status": "success", "duration_ms": 1000}},
     ]
 
     async with websockets.connect(uri, ping_interval=None) as websocket:

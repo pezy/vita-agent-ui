@@ -9,6 +9,7 @@ import { Sparkles, BrainCircuit, Menu, X } from 'lucide-react';
 
 import { GenericTool } from './components/tools/GenericTool';
 import { ThinkingBlock } from './components/ThinkingBlock';
+import { TTSIndicator } from './components/TTSIndicator';
 
 const TOOLS = {
     'vision_analyze': VisionTool,
@@ -18,7 +19,7 @@ const TOOLS = {
 };
 
 const StreamRenderer = () => {
-    const { blocks, isConnected, availableClients, activeClientId, setActiveClientId } = useStreamIngestion(import.meta.env.VITE_WS_URL || 'ws://localhost:61111');
+    const { blocks, isConnected, availableClients, activeClientId, setActiveClientId, ttsState } = useStreamIngestion(import.meta.env.VITE_WS_URL || 'ws://localhost:61111');
     const { getTool } = useToolRegistry();
     const bottomRef = useRef<HTMLDivElement>(null);
     const [isSidebarOpen, setIsSidebarOpen] = useState(false);
@@ -128,7 +129,7 @@ const StreamRenderer = () => {
                 </header>
 
                 <div className="flex-1 overflow-y-auto px-2 md:px-6 py-4 md:py-6">
-                    <div className="max-w-3xl mx-auto space-y-4 md:space-y-6">
+                    <div className="max-w-3xl mx-auto space-y-4 md:space-y-6 pb-20"> {/* Added padding-bottom for indicators */}
                         <AnimatePresence mode="popLayout">
                             {(!blocks || blocks.length === 0) && activeClientId && (
                                 <motion.div
@@ -202,7 +203,7 @@ const StreamRenderer = () => {
                                         <div key={i} className="flex gap-2 md:gap-3 my-2">
                                             <div className="flex-shrink-0 w-8" />
                                             <div className="w-full max-w-[90%] md:max-w-[85%]">
-                                                <ToolComp args={block.args} result={block.result} />
+                                                <ToolComp args={block.args} result={block.result} events={block.events} />
                                             </div>
                                         </div>
                                     );
@@ -213,6 +214,9 @@ const StreamRenderer = () => {
                         <div ref={bottomRef} className="h-4" />
                     </div>
                 </div>
+
+                {/* TTS Indicator fixed at the bottom */}
+                <TTSIndicator isSpeaking={!!ttsState?.isSpeaking} />
             </div>
         </div>
     );

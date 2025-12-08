@@ -2,7 +2,7 @@ import React, { useState } from 'react';
 import { Terminal, ChevronDown } from 'lucide-react';
 import { motion, AnimatePresence } from 'framer-motion';
 
-export const GenericTool: React.FC<{ args: any; result?: any; name?: string }> = ({ args, result, name = 'Tool Call' }) => {
+export const GenericTool: React.FC<{ args: any; result?: any; name?: string; events?: any[] }> = ({ args, result, name = 'Tool Call' }) => {
     const [isOpen, setIsOpen] = useState(false);
 
     return (

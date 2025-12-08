@@ -47,8 +47,9 @@ export function useStreamIngestion(url: string) {
                         ...prev,
                         [clientId]: {
                             blocks: updatedBlocks,
-                            isThinking: parser.isThinking, // You might need to expose this from parser or track it
-                            isConnected: true
+                            isThinking: parser.isThinking,
+                            isConnected: true,
+                            ttsState: parser.ttsState
                         }
                     }));
                 } else if (data.type === 'system') {
@@ -77,6 +78,7 @@ export function useStreamIngestion(url: string) {
         isConnected: stats.isConnected,
         availableClients,
         activeClientId,
-        setActiveClientId
+        setActiveClientId,
+        ttsState: activeStream?.ttsState
     };
 }

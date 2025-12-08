@@ -3,6 +3,7 @@ import React, { createContext, useContext, ReactNode } from 'react';
 type ToolProps = {
     args: any;
     result?: any;
+    events?: any[];
 };
 
 type ToolComponent = React.ComponentType<ToolProps>;
