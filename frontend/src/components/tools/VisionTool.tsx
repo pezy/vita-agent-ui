@@ -220,7 +220,7 @@ export const VisionTool: React.FC<VisionToolProps> = ({ args, result, events }) 
                                                     height: `${(det.y2 - det.y1) * 100}%`
                                                 }}
                                             >
-                                                <span className="absolute -top-4 left-0 text-[9px] bg-yellow-400/90 text-black px-1 rounded-sm shadow-sm font-medium">
+                                                <span className="absolute -top-4 left-0 text-[9px] bg-yellow-400/90 text-black px-1 rounded-sm shadow-sm font-medium max-w-[150px] truncate">
                                                     {det.label}
                                                 </span>
                                             </div>
@@ -258,10 +258,10 @@ export const VisionTool: React.FC<VisionToolProps> = ({ args, result, events }) 
                                                         <MapPin size={12} className="text-white" />
                                                     </div>
                                                     {label && (
-                                                        <div className="mt-1 px-2 py-0.5 rounded-full bg-black/60 text-white text-[10px] backdrop-blur-sm whitespace-nowrap z-10 font-medium">
-                                                            {label}
+                                                        <div className="mt-1 px-2 py-0.5 rounded-full bg-black/60 text-white text-[10px] backdrop-blur-sm z-10 font-medium max-w-[120px] text-center leading-tight">
+                                                            <div className="truncate">{label}</div>
                                                             {typeof confidence === 'number' && (
-                                                                <span className="ml-1 text-[9px] text-gray-200">({(confidence * 100).toFixed(0)}%)</span>
+                                                                <span className="text-[9px] text-gray-200 block">{(confidence * 100).toFixed(0)}%</span>
                                                             )}
                                                         </div>
                                                     )}

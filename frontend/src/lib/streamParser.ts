@@ -188,6 +188,9 @@ export class StreamParser {
         if (this.currentTextBlock && !this.currentTextBlock.isThinking) {
             this.currentTextBlock.content += text;
         } else {
+            // Ignore whitespace-only text when starting a new block to avoid empty bubbles
+            if (text.trim().length === 0) return;
+
             // Create new text block
             this.currentTextBlock = { type: 'text', content: text, isThinking: false };
             this.blocks.push(this.currentTextBlock);

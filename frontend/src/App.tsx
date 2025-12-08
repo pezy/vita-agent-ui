@@ -187,6 +187,13 @@ const StreamRenderer = () => {
                                         </div>
                                     );
                                 } else if (block.type === 'tool_call') {
+                                    const isAbandoned = !block.result &&
+                                        (!block.events || block.events.length === 0) &&
+                                        i < blocks.length - 1 &&
+                                        blocks[i + 1].type === 'text';
+
+                                    if (isAbandoned) return null;
+
                                     const ToolComp = getTool(block.name);
                                     if (!ToolComp) {
                                         // Fallback to GenericTool for unknown tools
