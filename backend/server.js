@@ -102,12 +102,12 @@ wss.on("connection", (ws) => {
   ws.on("close", () => {
     logWithTimestamp("Client disconnected");
     const clientInfo = clients.get(ws);
+    clients.delete(ws);
     // Only broadcast if a SOURCE disconnected
     // If a viewer disconnects, nobody cares (except the server logs)
     if (clientInfo && clientInfo.type === "source") {
       broadcastClientList(wss, clients);
     }
-    clients.delete(ws);
   });
 });
 

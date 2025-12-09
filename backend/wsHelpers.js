@@ -22,19 +22,18 @@ function safeSend(clientSocket, message) {
     try {
       clientSocket.terminate();
     } catch (terminateErr) {
-      errorWithTimestamp("Failed to terminate socket after send error.", terminateErr);
+      errorWithTimestamp(
+        "Failed to terminate socket after send error.",
+        terminateErr
+      );
     }
   }
 }
 
 function getActiveSources(clients) {
-  const activeSources = [];
-  clients.forEach((info) => {
-    if (info.type === "source") {
-      activeSources.push({ id: info.id, name: info.name });
-    }
-  });
-  return activeSources;
+  return Array.from(clients.values())
+    .filter((info) => info.type === "source")
+    .map(({ id, name }) => ({ id, name }));
 }
 
 function sendClientListTo(clientSocket, clients) {
@@ -71,7 +70,7 @@ function formatMessageForLog(data) {
 }
 
 async function attachImageFromUrl(data, logger, errorLogger) {
-  if (!(data.type === "ui_event" && data.event && data.event.image_url)) {
+  if (data.type !== "ui_event" || !data.event || !data.event.image_url) {
     return;
   }
 
