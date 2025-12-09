@@ -17,6 +17,7 @@ export function useStreamIngestion(url: string) {
   const disconnectTimeoutRef = useRef<NodeJS.Timeout | null>(null);
   const reconnectTimeoutRef = useRef<NodeJS.Timeout | null>(null);
   const retryCountRef = useRef<number>(0);
+  const connectRef = useRef<(() => WebSocket | null) | null>(null);
 
   // Map clientId -> StreamParser instance
   const parsersRef = useRef<Map<string, StreamParser>>(new Map());
@@ -41,7 +42,7 @@ export function useStreamIngestion(url: string) {
     }
     reconnectTimeoutRef.current = setTimeout(() => {
       retryCountRef.current += 1;
-      connect();
+      connectRef.current?.();
     }, delay);
   }, [backoffDelay]);
 
@@ -53,97 +54,97 @@ export function useStreamIngestion(url: string) {
     }
   }, []);
 
-  const connect = useCallback(() => {
-    const ws = new WebSocket(url);
-
-    ws.onopen = () => {
-      console.log("Connected to WS");
-      setStats({ isConnected: true, isReconnecting: false });
-      resetRetry();
-    };
-
-    ws.onmessage = (event) => {
-      try {
-        const data: ServerMessage = JSON.parse(event.data);
-
-        if (data.type === "client_list") {
-          const updateClients = () => {
-            setAvailableClients(data.clients);
-            // Auto-select first client IF none selected AND we have clients
-            // If we have no clients, we KEEP the current activeClientId to show cached data
-            if (data.clients.length > 0) {
-              setActiveClientId((prev: string | null) => {
-                if (prev && data.clients.find((c) => c.id === prev))
-                  return prev;
-                return data.clients[0].id;
-              });
-            } else {
-              setActiveClientId(null);
-            }
-          };
-
-          if (data.clients.length > 0) {
-            // If we have clients, clear any pending disconnect timeout and update immediately
-            if (disconnectTimeoutRef.current) {
-              clearTimeout(disconnectTimeoutRef.current);
-              disconnectTimeoutRef.current = null;
-            }
-            updateClients();
-          } else {
-            // If client list is empty, start a grace period before clearing UI
-            if (!disconnectTimeoutRef.current) {
-              disconnectTimeoutRef.current = setTimeout(() => {
-                updateClients();
-                disconnectTimeoutRef.current = null;
-              }, 5000); // 5s grace period
-            }
-          }
-        } else if (data.type === "broadcast") {
-          const { clientId, message } = data;
-
-          // Get or create parser for this client
-          let parser = parsersRef.current.get(clientId);
-          if (!parser) {
-            parser = new StreamParser();
-            parsersRef.current.set(clientId, parser);
-          }
-
-          const updatedBlocks = parser.processChunk(message);
-
-          setClientStreams((prev: Record<string, StreamState>) => ({
-            ...prev,
-            [clientId]: {
-              blocks: updatedBlocks,
-              isThinking: parser.isThinking,
-              isConnected: true,
-              ttsState: parser.ttsState,
-            },
-          }));
-        } else if (data.type === "system") {
-          // console.log("System:", data.content);
-        }
-      } catch (e) {
-        console.error("Failed to parse chunk", e);
-      }
-    };
-
-    ws.onclose = () => {
-      console.log("Disconnected from WS");
-      setStats({ isConnected: false, isReconnecting: true });
-      scheduleReconnect();
-    };
-
-    ws.onerror = (err) => {
-      console.error("WS error", err);
-      ws.close();
-    };
-
-    // Cleanup for this connection instance on unmount
-    return ws;
-  }, [resetRetry, scheduleReconnect, url]);
-
   useEffect(() => {
-    const ws = connect();
+    connectRef.current = () => {
+      const ws = new WebSocket(url);
+
+      ws.onopen = () => {
+        console.log("Connected to WS");
+        setStats({ isConnected: true, isReconnecting: false });
+        resetRetry();
+      };
+
+      ws.onmessage = (event) => {
+        try {
+          const data: ServerMessage = JSON.parse(event.data);
+
+          if (data.type === "client_list") {
+            const updateClients = () => {
+              setAvailableClients(data.clients);
+              // Auto-select first client IF none selected AND we have clients
+              // If we have no clients, we KEEP the current activeClientId to show cached data
+              if (data.clients.length > 0) {
+                setActiveClientId((prev: string | null) => {
+                  if (prev && data.clients.find((c) => c.id === prev))
+                    return prev;
+                  return data.clients[0].id;
+                });
+              } else {
+                setActiveClientId(null);
+              }
+            };
+
+            if (data.clients.length > 0) {
+              // If we have clients, clear any pending disconnect timeout and update immediately
+              if (disconnectTimeoutRef.current) {
+                clearTimeout(disconnectTimeoutRef.current);
+                disconnectTimeoutRef.current = null;
+              }
+              updateClients();
+            } else {
+              // If client list is empty, start a grace period before clearing UI
+              if (!disconnectTimeoutRef.current) {
+                disconnectTimeoutRef.current = setTimeout(() => {
+                  updateClients();
+                  disconnectTimeoutRef.current = null;
+                }, 5000); // 5s grace period
+              }
+            }
+          } else if (data.type === "broadcast") {
+            const { clientId, message } = data;
+
+            // Get or create parser for this client
+            let parser = parsersRef.current.get(clientId);
+            if (!parser) {
+              parser = new StreamParser();
+              parsersRef.current.set(clientId, parser);
+            }
+
+            const updatedBlocks = parser.processChunk(message);
+
+            setClientStreams((prev: Record<string, StreamState>) => ({
+              ...prev,
+              [clientId]: {
+                blocks: updatedBlocks,
+                isThinking: parser.isThinking,
+                isConnected: true,
+                ttsState: parser.ttsState,
+              },
+            }));
+          } else if (data.type === "system") {
+            // console.log("System:", data.content);
+          }
+        } catch (e) {
+          console.error("Failed to parse chunk", e);
+        }
+      };
+
+      ws.onclose = () => {
+        console.log("Disconnected from WS");
+        setStats({ isConnected: false, isReconnecting: true });
+        scheduleReconnect();
+      };
+
+      ws.onerror = (err) => {
+        console.error("WS error", err);
+        ws.close();
+      };
+
+      // Cleanup for this connection instance on unmount
+      return ws;
+    };
+
+    const ws = connectRef.current();
 
     return () => {
       if (disconnectTimeoutRef.current) {
@@ -154,7 +155,7 @@ export function useStreamIngestion(url: string) {
       }
       ws?.close();
     };
-  }, [connect]);
+  }, [resetRetry, scheduleReconnect, url]);
 
   const activeStream = activeClientId ? clientStreams[activeClientId] : null;
 
