@@ -162,7 +162,7 @@ wss.on("connection", (ws) => {
 const heartbeatInterval = setInterval(() => {
   wss.clients.forEach((client) => {
     if (client.isAlive === false) {
-      console.log(
+      logWithTimestamp(
         `Connection missed heartbeat: ${
           clients.get(client)?.id
         } (Not terminating)`
