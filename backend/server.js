@@ -84,7 +84,7 @@ wss.on("connection", (ws) => {
           // Only fetch if image_base64 is missing or we prefer url?
           // User says "defaulyt we use image_url. Then we load the image from the image_url."
           // This implies if URL is present, we load it.
-          console.log(`Fetching image from URL: ${data.event.image_url}`);
+          logWithTimestamp(`Fetching image from URL: ${data.event.image_url}`);
           const response = await fetch(data.event.image_url);
           if (response.ok) {
             const arrayBuffer = await response.arrayBuffer();
