@@ -1,6 +1,16 @@
 require("dotenv").config();
 const WebSocket = require("ws");
 const http = require("http");
+const {
+  logWithTimestamp,
+  errorWithTimestamp,
+  markAlive,
+  sendClientListTo,
+  broadcastClientList,
+  formatMessageForLog,
+  attachImageFromUrl,
+  safeSend,
+} = require("./wsHelpers");
 
 const server = http.createServer((req, res) => {
   res.writeHead(200, { "Content-Type": "text/plain" });
@@ -9,32 +19,20 @@ const server = http.createServer((req, res) => {
 
 // Relax HTTP idle timeouts so WebSocket upgrades are not closed prematurely
 const HTTP_IDLE_TIMEOUT_MS = Number(process.env.HTTP_IDLE_TIMEOUT_MS || 300000); // default 5m
+const WS_MAX_PAYLOAD_BYTES = Number(
+  process.env.WS_MAX_PAYLOAD_BYTES || 10 * 1024 * 1024
+); // default 10MB
 server.keepAliveTimeout = HTTP_IDLE_TIMEOUT_MS;
 server.headersTimeout = HTTP_IDLE_TIMEOUT_MS + 1000; // must be > keepAliveTimeout
 server.requestTimeout = 0; // disable per-request timeout
 
-const wss = new WebSocket.Server({ server });
+const wss = new WebSocket.Server({ server, maxPayload: WS_MAX_PAYLOAD_BYTES });
 
 const HEARTBEAT_INTERVAL_MS = Number(
   process.env.WS_HEARTBEAT_INTERVAL_MS || 20000
 );
 
-// Map to store connected "agent/source" clients
-// Key: WebSocket object, Value: { id: string, name: string, type: 'source' | 'viewer' }
 const clients = new Map();
-
-function logWithTimestamp(...args) {
-  console.log(`[${new Date().toISOString()}]`, ...args);
-}
-
-function errorWithTimestamp(...args) {
-  console.error(`[${new Date().toISOString()}]`, ...args);
-}
-
-// Simple ping/pong to keep connections alive
-function markAlive() {
-  this.isAlive = true;
-}
 
 wss.on("connection", (ws) => {
   logWithTimestamp("Client connected");
@@ -49,60 +47,21 @@ wss.on("connection", (ws) => {
     type: "viewer", // Default to viewer until they register as source
   });
 
-  ws.send(
+  safeSend(
+    ws,
     JSON.stringify({
       type: "system",
       content: "Connected to Stream Server...\n",
     })
   );
-  // Send client list ONLY to the new client (don't spam everyone else)
-  sendClientListTo(ws);
+  sendClientListTo(ws, clients);
 
   ws.on("message", async (message) => {
     try {
       const data = JSON.parse(message);
 
-      // Log received message (truncate long strings like base64 images)
-      logWithTimestamp(
-        "Received:",
-        JSON.stringify(data, (key, value) => {
-          if (
-            key === "image_base64" &&
-            typeof value === "string" &&
-            value.length > 50
-          ) {
-            return value.substring(0, 20) + "...[TRUNCATED]";
-          }
-          return value;
-        })
-      );
-
-      // Handle image fetching for events with image_url
-      // "Now for backend, when handle base64 image event. We can optionally handle image_url key in the payload, defaulyt we use image_url. Then we load the image from the image_url."
-      if (data.type === "ui_event" && data.event && data.event.image_url) {
-        try {
-          // Only fetch if image_base64 is missing or we prefer url?
-          // User says "defaulyt we use image_url. Then we load the image from the image_url."
-          // This implies if URL is present, we load it.
-          logWithTimestamp(`Fetching image from URL: ${data.event.image_url}`);
-          const response = await fetch(data.event.image_url);
-          if (response.ok) {
-            const arrayBuffer = await response.arrayBuffer();
-            const buffer = Buffer.from(arrayBuffer);
-            data.event.image_base64 = buffer.toString("base64");
-            // We preserve the image_url in the event as well.
-          } else {
-            errorWithTimestamp(
-              `Failed to fetch image from ${data.event.image_url}: ${response.statusText}`
-            );
-          }
-        } catch (fetchErr) {
-          errorWithTimestamp(
-            `Error fetching image from ${data.event.image_url}:`,
-            fetchErr
-          );
-        }
-      }
+      logWithTimestamp("Received:", formatMessageForLog(data));
+      await attachImageFromUrl(data, logWithTimestamp, errorWithTimestamp);
 
       // Handle Registration
       if (data.type === "register") {
@@ -115,7 +74,7 @@ wss.on("connection", (ws) => {
         logWithTimestamp(
           `Client registered: ${clientInfo.name} (${clientInfo.id})`
         );
-        broadcastClientList();
+        broadcastClientList(wss, clients);
         return;
       }
 
@@ -130,14 +89,10 @@ wss.on("connection", (ws) => {
         };
 
         // Broadcast to ALL connected clients (viewers AND other sources if needed)
+        const serialized = JSON.stringify(wrappedMessage);
         wss.clients.forEach((client) => {
-          if (client.readyState === WebSocket.OPEN) {
-            client.send(JSON.stringify(wrappedMessage));
-          }
+          safeSend(client, serialized);
         });
-      } else {
-        // Should viewers be able to send things? Maybe control commands later.
-        // For now, ignore or log.
       }
     } catch (e) {
       errorWithTimestamp("Invalid JSON received", e);
@@ -147,74 +102,61 @@ wss.on("connection", (ws) => {
   ws.on("close", () => {
     logWithTimestamp("Client disconnected");
     const clientInfo = clients.get(ws);
-
     // Only broadcast if a SOURCE disconnected
     // If a viewer disconnects, nobody cares (except the server logs)
     if (clientInfo && clientInfo.type === "source") {
-      clients.delete(ws);
-      broadcastClientList();
-    } else {
-      clients.delete(ws);
+      broadcastClientList(wss, clients);
     }
+    clients.delete(ws);
   });
 });
 
 const heartbeatInterval = setInterval(() => {
   wss.clients.forEach((client) => {
     if (client.isAlive === false) {
+      const clientInfo = clients.get(client);
       logWithTimestamp(
         `Connection missed heartbeat: ${
-          clients.get(client)?.id
-        } (Not terminating)`
+          clientInfo?.id || "unknown"
+        }. Terminating.`
       );
-      // return client.terminate();
+      try {
+        client.terminate();
+      } catch (err) {
+        errorWithTimestamp("Failed to terminate unresponsive client", err);
+      }
+      clients.delete(client);
+      // Only broadcast when a source disappears to keep viewers in sync
+      if (clientInfo && clientInfo.type === "source") {
+        broadcastClientList(wss, clients);
+      }
+      return;
     }
     client.isAlive = false;
-    client.ping();
+    try {
+      client.ping();
+    } catch (err) {
+      const clientInfo = clients.get(client);
+      errorWithTimestamp("Failed to ping client", err);
+      try {
+        client.terminate();
+      } catch (terminateErr) {
+        errorWithTimestamp(
+          "Failed to terminate after ping error",
+          terminateErr
+        );
+      }
+      clients.delete(client);
+      if (clientInfo && clientInfo.type === "source") {
+        broadcastClientList(wss, clients);
+      }
+    }
   });
 }, HEARTBEAT_INTERVAL_MS);
 
 wss.on("close", () => {
   clearInterval(heartbeatInterval);
 });
-
-function sendClientListTo(clientSocket) {
-  const activeSources = [];
-  clients.forEach((info) => {
-    if (info.type === "source") {
-      activeSources.push({ id: info.id, name: info.name });
-    }
-  });
-
-  const message = JSON.stringify({
-    type: "client_list",
-    clients: activeSources,
-  });
-
-  if (clientSocket.readyState === WebSocket.OPEN) {
-    clientSocket.send(message);
-  }
-}
-
-function broadcastClientList() {
-  const activeSources = [];
-  clients.forEach((info) => {
-    if (info.type === "source") {
-      activeSources.push({ id: info.id, name: info.name });
-    }
-  });
-
-  const message = JSON.stringify({
-    type: "client_list",
-    clients: activeSources,
-  });
-
-  wss.clients.forEach((client) => {
-    if (client.readyState === WebSocket.OPEN) {
-      client.send(message);
-    }
-  });
-}
 
 const PORT = process.env.PORT || 61111;
 const HOST = process.env.HOST || "0.0.0.0";

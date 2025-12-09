@@ -1,16 +1,22 @@
-import { useState, useEffect, useRef } from "react";
+import { useState, useEffect, useRef, useCallback } from "react";
 import { StreamParser } from "../lib/streamParser";
 import { StreamState, ServerMessage, ClientInfo } from "../types";
 
 export function useStreamIngestion(url: string) {
-  const [stats, setStats] = useState<{ isConnected: boolean }>({
+  const [stats, setStats] = useState<{
+    isConnected: boolean;
+    isReconnecting: boolean;
+  }>({
     isConnected: false,
+    isReconnecting: false,
   });
   const [availableClients, setAvailableClients] = useState<ClientInfo[]>([]);
   const [activeClientId, setActiveClientId] = useState<string | null>(null);
 
   // Timeout ref for debouncing disconnects
   const disconnectTimeoutRef = useRef<NodeJS.Timeout | null>(null);
+  const reconnectTimeoutRef = useRef<NodeJS.Timeout | null>(null);
+  const retryCountRef = useRef<number>(0);
 
   // Map clientId -> StreamParser instance
   const parsersRef = useRef<Map<string, StreamParser>>(new Map());
@@ -19,12 +25,41 @@ export function useStreamIngestion(url: string) {
     Record<string, StreamState>
   >({});
 
-  useEffect(() => {
+  const backoffDelay = useCallback(() => {
+    const base = 500; // 0.5s
+    const cap = 30000; // 30s cap
+    const attempt = retryCountRef.current;
+    const exp = Math.min(cap, base * Math.pow(2, attempt));
+    const jitter = Math.random() * 300; // small jitter
+    return Math.min(cap, exp + jitter);
+  }, []);
+
+  const scheduleReconnect = useCallback(() => {
+    const delay = backoffDelay();
+    if (reconnectTimeoutRef.current) {
+      clearTimeout(reconnectTimeoutRef.current);
+    }
+    reconnectTimeoutRef.current = setTimeout(() => {
+      retryCountRef.current += 1;
+      connect();
+    }, delay);
+  }, [backoffDelay]);
+
+  const resetRetry = useCallback(() => {
+    retryCountRef.current = 0;
+    if (reconnectTimeoutRef.current) {
+      clearTimeout(reconnectTimeoutRef.current);
+      reconnectTimeoutRef.current = null;
+    }
+  }, []);
+
+  const connect = useCallback(() => {
     const ws = new WebSocket(url);
 
     ws.onopen = () => {
       console.log("Connected to WS");
-      setStats({ isConnected: true });
+      setStats({ isConnected: true, isReconnecting: false });
+      resetRetry();
     };
 
     ws.onmessage = (event) => {
@@ -41,6 +76,13 @@ export function useStreamIngestion(url: string) {
                 if (prev && data.clients.find((c) => c.id === prev))
                   return prev;
                 return data.clients[0].id;
+              });
+            } else {
+              // If list empty and previously selected client no longer exists
+              setActiveClientId((prev) => {
+                if (!prev) return prev;
+                const stillExists = data.clients.find((c) => c.id === prev);
+                return stillExists ? prev : null;
               });
             }
           };
@@ -92,22 +134,39 @@ export function useStreamIngestion(url: string) {
 
     ws.onclose = () => {
       console.log("Disconnected from WS");
-      setStats({ isConnected: false });
+      setStats({ isConnected: false, isReconnecting: true });
+      scheduleReconnect();
     };
+
+    ws.onerror = (err) => {
+      console.error("WS error", err);
+      ws.close();
+    };
+
+    // Cleanup for this connection instance on unmount
+    return ws;
+  }, [resetRetry, scheduleReconnect, url]);
+
+  useEffect(() => {
+    const ws = connect();
 
     return () => {
       if (disconnectTimeoutRef.current) {
         clearTimeout(disconnectTimeoutRef.current);
       }
-      ws.close();
+      if (reconnectTimeoutRef.current) {
+        clearTimeout(reconnectTimeoutRef.current);
+      }
+      ws?.close();
     };
-  }, [url]);
+  }, [connect]);
 
   const activeStream = activeClientId ? clientStreams[activeClientId] : null;
 
   return {
     blocks: activeStream?.blocks || [],
     isConnected: stats.isConnected,
+    isReconnecting: stats.isReconnecting,
     availableClients,
     activeClientId,
     setActiveClientId,

@@ -19,14 +19,16 @@ const TOOLS = {
 };
 
 const StreamRenderer = () => {
+  const wsUrl = (import.meta as any).env?.VITE_WS_URL || "ws://localhost:61111";
   const {
     blocks,
     isConnected,
+    isReconnecting,
     availableClients,
     activeClientId,
     setActiveClientId,
     ttsState,
-  } = useStreamIngestion(import.meta.env.VITE_WS_URL || "ws://localhost:61111");
+  } = useStreamIngestion(wsUrl);
   const { getTool } = useToolRegistry();
   const bottomRef = useRef<HTMLDivElement>(null);
   const [isSidebarOpen, setIsSidebarOpen] = useState(false);
@@ -77,17 +79,21 @@ const StreamRenderer = () => {
         )}
       </div>
       <div className="p-4 border-t border-gray-100">
-        <div
-          className={`flex items-center gap-2 text-xs ${
-            isConnected ? "text-green-600" : "text-red-500"
-          }`}
-        >
+        <div className="flex items-center gap-2 text-xs text-gray-600">
           <div
             className={`w-2 h-2 rounded-full ${
-              isConnected ? "bg-green-500" : "bg-red-500"
+              isConnected
+                ? "bg-green-500"
+                : isReconnecting
+                ? "bg-amber-400"
+                : "bg-red-500"
             }`}
           />
-          {isConnected ? "Server Connected" : "Disconnected"}
+          {isConnected
+            ? "Server Connected"
+            : isReconnecting
+            ? "Reconnecting..."
+            : "Disconnected"}
         </div>
       </div>
     </div>
