@@ -8,6 +8,12 @@ export class StreamParser {
   private currentTextBlock: Extract<MessageBlock, { type: "text" }> | null =
     null;
 
+  constructor(initialBlocks?: MessageBlock[]) {
+    if (initialBlocks) {
+      this.blocks = initialBlocks;
+    }
+  }
+
   public get isThinking(): boolean {
     return this.currentThinkingBlock !== null;
   }
