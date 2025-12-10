@@ -1,6 +1,7 @@
 import { useState, useEffect, useRef, useCallback } from "react";
 import { StreamParser } from "../lib/streamParser";
 import { StreamState, ServerMessage, ClientInfo } from "../types";
+import { db } from "../lib/db";
 
 export function useStreamIngestion(url: string) {
   const [stats, setStats] = useState<{
@@ -54,6 +55,32 @@ export function useStreamIngestion(url: string) {
     }
   }, []);
 
+  // Hydrate from DB on mount
+  useEffect(() => {
+    const loadCachedData = async () => {
+      try {
+        const cachedClients = await db.getAllClients();
+        if (cachedClients.length > 0) {
+          setAvailableClients(cachedClients);
+          setActiveClientId((prev) => prev || cachedClients[0].id);
+        }
+
+        const cachedConversations = await db.getAllConversations();
+        setClientStreams(cachedConversations);
+
+        // Initialize parsers with cached blocks
+        Object.entries(cachedConversations).forEach(([clientId, state]) => {
+          const parser = new StreamParser(state.blocks);
+          parser.ttsState = state.ttsState || { isSpeaking: false };
+          parsersRef.current.set(clientId, parser);
+        });
+      } catch (err) {
+        console.error("Failed to load cached data:", err);
+      }
+    };
+    loadCachedData();
+  }, []);
+
   useEffect(() => {
     connectRef.current = () => {
       const ws = new WebSocket(url);
@@ -69,37 +96,27 @@ export function useStreamIngestion(url: string) {
           const data: ServerMessage = JSON.parse(event.data);
 
           if (data.type === "client_list") {
-            const updateClients = () => {
-              setAvailableClients(data.clients);
-              // Auto-select first client IF none selected AND we have clients
-              // If we have no clients, we KEEP the current activeClientId to show cached data
-              if (data.clients.length > 0) {
-                setActiveClientId((prev: string | null) => {
-                  if (prev && data.clients.find((c) => c.id === prev))
+            const updateClients = async () => {
+              try {
+                // Save new clients to DB (updates timestamps)
+                await db.saveClients(data.clients);
+                // Fetch all valid clients (sorted by recency)
+                const allClients = await db.getAllClients();
+                setAvailableClients(allClients);
+
+                // Auto-select if needed
+                setActiveClientId((prev) => {
+                  if (prev && allClients.find((c) => c.id === prev))
                     return prev;
-                  return data.clients[0].id;
+                  return allClients.length > 0 ? allClients[0].id : null;
                 });
-              } else {
-                setActiveClientId(null);
+              } catch (e) {
+                console.error("Failed to update clients from DB", e);
+                // Fallback to server list if DB fails
+                setAvailableClients(data.clients);
               }
             };
-
-            if (data.clients.length > 0) {
-              // If we have clients, clear any pending disconnect timeout and update immediately
-              if (disconnectTimeoutRef.current) {
-                clearTimeout(disconnectTimeoutRef.current);
-                disconnectTimeoutRef.current = null;
-              }
-              updateClients();
-            } else {
-              // If client list is empty, start a grace period before clearing UI
-              if (!disconnectTimeoutRef.current) {
-                disconnectTimeoutRef.current = setTimeout(() => {
-                  updateClients();
-                  disconnectTimeoutRef.current = null;
-                }, 5000); // 5s grace period
-              }
-            }
+            updateClients();
           } else if (data.type === "broadcast") {
             const { clientId, message } = data;
 
@@ -112,15 +129,22 @@ export function useStreamIngestion(url: string) {
 
             const updatedBlocks = parser.processChunk(message);
 
-            setClientStreams((prev: Record<string, StreamState>) => ({
-              ...prev,
-              [clientId]: {
-                blocks: updatedBlocks,
-                isThinking: parser.isThinking,
-                isConnected: true,
-                ttsState: parser.ttsState,
-              },
-            }));
+            setClientStreams((prev: Record<string, StreamState>) => {
+              const newState = {
+                ...prev,
+                [clientId]: {
+                  blocks: updatedBlocks,
+                  isThinking: parser.isThinking,
+                  isConnected: true,
+                  ttsState: parser.ttsState,
+                },
+              };
+              // Persist to DB
+              db.saveConversation(clientId, newState[clientId]).catch(
+                console.error
+              );
+              return newState;
+            });
           } else if (data.type === "system") {
             // console.log("System:", data.content);
           }
